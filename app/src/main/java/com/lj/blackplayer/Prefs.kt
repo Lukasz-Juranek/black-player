@@ -1,16 +1,16 @@
 package com.lj.blackplayer
 
 import android.content.Context
-import android.net.Uri
 import androidx.core.content.edit
 import androidx.media3.common.Player
 
-/** Small persisted state: chosen folder, last track/position, shuffle and repeat. */
+/** Small persisted state: music source, last track/position, shuffle and repeat. */
 object Prefs {
     private fun sp(c: Context) = c.getSharedPreferences("player", Context.MODE_PRIVATE)
 
-    fun folder(c: Context): Uri? = sp(c).getString("folder", null)?.let(Uri::parse)
-    fun setFolder(c: Context, uri: Uri) = sp(c).edit { putString("folder", uri.toString()) }
+    /** A picked folder's tree URI, or [Library.DOWNLOADS]. */
+    fun source(c: Context): String? = sp(c).getString("folder", null)
+    fun setSource(c: Context, source: String) = sp(c).edit { putString("folder", source) }
 
     fun lastTrack(c: Context): String? = sp(c).getString("track", null)
     fun lastPosition(c: Context): Long = sp(c).getLong("position", 0)

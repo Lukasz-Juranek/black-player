@@ -1,6 +1,9 @@
 package com.lj.blackplayer
 
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -19,6 +22,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -51,6 +56,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
@@ -90,8 +96,9 @@ fun PlayerScreen(controller: Player?) {
     var meta by remember { mutableStateOf(MediaMetadata.EMPTY) }
     var duration by remember { mutableLongStateOf(0L) }
     var position by remember { mutableLongStateOf(0L) }
-    var folderName by remember { mutableStateOf(Prefs.folder(ctx)?.let(Library::folderLabel)) }
+    var folderName by remember { mutableStateOf(Prefs.source(ctx)?.let(Library::label)) }
     var scanning by remember { mutableStateOf(false) }
+    var menuOpen by remember { mutableStateOf(false) }
 
     // Mirror player state into Compose state.
     DisposableEffect(controller) {
@@ -129,30 +136,31 @@ fun PlayerScreen(controller: Player?) {
     LaunchedEffect(controller) {
         val c = controller ?: return@LaunchedEffect
         if (c.mediaItemCount > 0 || scanning) return@LaunchedEffect
-        val folder = Prefs.folder(ctx) ?: return@LaunchedEffect
+        val source = Prefs.source(ctx) ?: return@LaunchedEffect
         scanning = true
         val tracks = withContext(Dispatchers.IO) {
-            runCatching { Library.scan(ctx, folder) }.getOrDefault(emptyList())
+            runCatching { Library.scan(ctx, source) }.getOrDefault(emptyList())
         }
         scanning = false
         val start = tracks.indexOfFirst { it.uri.toString() == Prefs.lastTrack(ctx) }
         load(c, tracks, start.coerceAtLeast(0), if (start >= 0) Prefs.lastPosition(ctx) else 0, play = false)
     }
 
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        val cr = ctx.contentResolver
-        val flag = Intent.FLAG_GRANT_READ_URI_PERMISSION
-        Prefs.folder(ctx)?.takeIf { it != uri }?.let { old ->
-            runCatching { cr.releasePersistableUriPermission(old, flag) }
+    fun useSource(source: String) {
+        // Drop access to the previously picked folder.
+        Prefs.source(ctx)?.takeIf { it != source && it != Library.DOWNLOADS }?.let { old ->
+            runCatching {
+                ctx.contentResolver.releasePersistableUriPermission(
+                    Uri.parse(old), Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            }
         }
-        cr.takePersistableUriPermission(uri, flag)
-        Prefs.setFolder(ctx, uri)
-        folderName = Library.folderLabel(uri)
+        Prefs.setSource(ctx, source)
+        folderName = Library.label(source)
         scanning = true
         scope.launch {
             val tracks = withContext(Dispatchers.IO) {
-                runCatching { Library.scan(ctx, uri) }.getOrDefault(emptyList())
+                runCatching { Library.scan(ctx, source) }.getOrDefault(emptyList())
             }
             // The controller may still be reconnecting after the picker closed.
             val c = snapshotFlow { currentController }.filterNotNull().first()
@@ -160,6 +168,23 @@ fun PlayerScreen(controller: Player?) {
             val start = if (c.shuffleModeEnabled && tracks.isNotEmpty()) tracks.indices.random() else 0
             load(c, tracks, start, 0, play = true)
         }
+    }
+
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        ctx.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        useSource(uri.toString())
+    }
+
+    val audioPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) useSource(Library.DOWNLOADS)
+        else Toast.makeText(ctx, "Allow music access to play from Downloads", Toast.LENGTH_LONG).show()
+    }
+
+    fun openDownloads() {
+        val granted = ContextCompat.checkSelfPermission(ctx, Library.audioPermission) ==
+            PackageManager.PERMISSION_GRANTED
+        if (granted) useSource(Library.DOWNLOADS) else audioPermission.launch(Library.audioPermission)
     }
 
     Column(
@@ -181,8 +206,24 @@ fun PlayerScreen(controller: Player?) {
                 maxLines = 1, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
             )
-            IconButton(onClick = { picker.launch(null) }) {
-                Icon(painterResource(R.drawable.ic_folder), "Choose folder", tint = Dim)
+            Box {
+                IconButton(onClick = { menuOpen = true }) {
+                    Icon(painterResource(R.drawable.ic_folder), "Music source", tint = Dim)
+                }
+                DropdownMenu(
+                    expanded = menuOpen,
+                    onDismissRequest = { menuOpen = false },
+                    containerColor = Color(0xFF111111)
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Choose folder…", color = Color.White) },
+                        onClick = { menuOpen = false; picker.launch(null) }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Downloads", color = Color.White) },
+                        onClick = { menuOpen = false; openDownloads() }
+                    )
+                }
             }
         }
 
@@ -190,8 +231,17 @@ fun PlayerScreen(controller: Player?) {
         Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
             when {
                 scanning -> Text("Scanning…", color = Dim)
-                items.isEmpty() -> OutlinedButton(onClick = { picker.launch(null) }) {
-                    Text("Choose music folder", color = Color.White)
+                items.isEmpty() -> Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    if (folderName != null) Text("No music found", color = Dim)
+                    OutlinedButton(onClick = { picker.launch(null) }) {
+                        Text("Choose music folder", color = Color.White)
+                    }
+                    OutlinedButton(onClick = { openDownloads() }) {
+                        Text("Play from Downloads", color = Color.White)
+                    }
                 }
                 else -> TrackList(items, index) { i ->
                     controller?.run {

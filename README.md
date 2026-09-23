@@ -8,6 +8,8 @@ A minimal black Android music player. You pick a folder and it plays everything 
 - Remembers the folder, track, position, shuffle and repeat
 - Skips files that can't be played
 - Needs no storage permission, because the folder is picked through the system picker
+- Has a **Downloads** source for music that sits directly in Download. Android 11+ won't let the picker select
+  that folder, so this source reads it through the media library instead. It asks for the music/audio permission once.
 
 Built with Kotlin, Jetpack Compose and Media3 (ExoPlayer). It needs Android 8.0 or newer.
 
