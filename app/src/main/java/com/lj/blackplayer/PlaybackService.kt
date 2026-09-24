@@ -6,6 +6,7 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
@@ -37,6 +38,7 @@ class PlaybackService : MediaSessionService() {
         player.shuffleModeEnabled = Prefs.shuffle(this)
         // Repeat-one is easy to forget and makes the player look stuck on one track, so it only lasts a session.
         player.repeatMode = Prefs.repeat(this).let { if (it == Player.REPEAT_MODE_ONE) Player.REPEAT_MODE_ALL else it }
+        player.setPlaybackSpeed(Prefs.speed(this))
         player.addListener(object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) = saveState()
 
@@ -48,6 +50,9 @@ class PlaybackService : MediaSessionService() {
                 Prefs.setShuffle(this@PlaybackService, enabled)
 
             override fun onRepeatModeChanged(mode: Int) = Prefs.setRepeat(this@PlaybackService, mode)
+
+            override fun onPlaybackParametersChanged(params: PlaybackParameters) =
+                Prefs.setSpeed(this@PlaybackService, params.speed)
 
             // Skip files that fail to decode instead of stopping playback.
             override fun onPlayerError(error: PlaybackException) {

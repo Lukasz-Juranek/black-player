@@ -4,7 +4,7 @@ import android.content.Context
 import androidx.core.content.edit
 import androidx.media3.common.Player
 
-/** Small persisted state: music source, last track/position, shuffle and repeat. */
+/** Small persisted state: music source, last track/position, shuffle, repeat and speed. */
 object Prefs {
     private fun sp(c: Context) = c.getSharedPreferences("player", Context.MODE_PRIVATE)
 
@@ -22,4 +22,7 @@ object Prefs {
 
     fun repeat(c: Context) = sp(c).getInt("repeat", Player.REPEAT_MODE_OFF)
     fun setRepeat(c: Context, mode: Int) = sp(c).edit { putInt("repeat", mode) }
+
+    fun speed(c: Context) = sp(c).getFloat("speed", 1f)
+    fun setSpeed(c: Context, speed: Float) = sp(c).edit { putFloat("speed", speed) }
 }

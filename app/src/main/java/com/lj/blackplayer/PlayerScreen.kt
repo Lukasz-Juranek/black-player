@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
@@ -54,7 +53,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -99,6 +97,7 @@ fun PlayerScreen(controller: Player?) {
     var error by remember { mutableStateOf<String?>(null) }
     var duration by remember { mutableLongStateOf(0L) }
     var position by remember { mutableLongStateOf(0L) }
+    var speed by remember { mutableFloatStateOf(1f) }
     var folderName by remember { mutableStateOf(Prefs.source(ctx)?.let(Library::label)) }
     var scanning by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
@@ -117,6 +116,7 @@ fun PlayerScreen(controller: Player?) {
             error = c.playerError?.let { "${it.errorCodeName}: ${it.cause?.message ?: it.message}" }
             duration = c.duration.coerceAtLeast(0)
             position = c.currentPosition
+            speed = c.playbackParameters.speed
         }
         sync(true)
         val listener = object : Player.Listener {
@@ -275,7 +275,10 @@ fun PlayerScreen(controller: Player?) {
                 Text(it, color = Color(0xFFCC5555), fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
 
-            SeekBar(position, duration) { controller?.seekTo(it); position = it }
+            SeekBar(
+                position, duration, speed,
+                onSpeed = { controller?.setPlaybackSpeed(it) }
+            ) { controller?.seekTo(it); position = it }
 
             Row(
                 Modifier.fillMaxWidth(),
@@ -315,29 +318,11 @@ fun PlayerScreen(controller: Player?) {
                         else -> Player.REPEAT_MODE_OFF
                     }
                 }) {
-                    Box {
-                        Icon(
-                            painterResource(R.drawable.ic_repeat),
-                            when (repeat) {
-                                Player.REPEAT_MODE_ONE -> "Repeat one"
-                                Player.REPEAT_MODE_ALL -> "Repeat all"
-                                else -> "Repeat off"
-                            },
-                            tint = if (repeat == Player.REPEAT_MODE_OFF) Faint else Color.White
-                        )
-                        // The glyph's own "1" is too small to notice; badge it instead.
-                        if (repeat == Player.REPEAT_MODE_ONE) Text(
-                            "1",
-                            color = Color.Black, fontSize = 9.sp, fontWeight = FontWeight.Bold,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .offset(x = 6.dp, y = (-6).dp)
-                                .size(14.dp)
-                                .clip(CircleShape)
-                                .background(Color.White)
-                        )
-                    }
+                    Icon(
+                        painterResource(if (repeat == Player.REPEAT_MODE_ONE) R.drawable.ic_repeat_one else R.drawable.ic_repeat),
+                        "Repeat",
+                        tint = if (repeat == Player.REPEAT_MODE_OFF) Faint else Color.White
+                    )
                 }
             }
         }
@@ -372,7 +357,7 @@ private fun TrackList(items: List<MediaItem>, current: Int, onClick: (Int) -> Un
 }
 
 @Composable
-private fun SeekBar(position: Long, duration: Long, onSeek: (Long) -> Unit) {
+private fun SeekBar(position: Long, duration: Long, speed: Float, onSpeed: (Float) -> Unit, onSeek: (Long) -> Unit) {
     var dragging by remember { mutableStateOf(false) }
     var dragValue by remember { mutableFloatStateOf(0f) }
     val fraction = if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f
@@ -406,6 +391,9 @@ private fun SeekBar(position: Long, duration: Long, onSeek: (Long) -> Unit) {
                 val step = jumpStep(duration)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     JumpButton("−${formatStep(step)}") { onSeek((position - step).coerceAtLeast(0)) }
+                    JumpButton(formatSpeed(speed)) {
+                        onSpeed(SPEEDS.firstOrNull { it > speed + 0.01f } ?: SPEEDS.first())
+                    }
                     JumpButton("+${formatStep(step)}") { onSeek((position + step).coerceAtMost(duration)) }
                 }
             }
@@ -436,6 +424,10 @@ private fun jumpStep(durationMs: Long): Long {
         else -> 10 * min
     }
 }
+
+private val SPEEDS = listOf(0.75f, 1f, 1.25f, 1.5f, 2f)
+
+private fun formatSpeed(s: Float): String = (if (s % 1f == 0f) "${s.toInt()}" else "$s") + "×"
 
 private fun formatStep(ms: Long): String = if (ms < 60_000) "${ms / 1000}s" else "${ms / 60_000}m"
 
