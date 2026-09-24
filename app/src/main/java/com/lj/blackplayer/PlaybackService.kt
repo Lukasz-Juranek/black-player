@@ -35,7 +35,8 @@ class PlaybackService : MediaSessionService() {
             .setWakeMode(C.WAKE_MODE_LOCAL)
             .build()
         player.shuffleModeEnabled = Prefs.shuffle(this)
-        player.repeatMode = Prefs.repeat(this)
+        // Repeat-one is easy to forget and makes the player look stuck on one track, so it only lasts a session.
+        player.repeatMode = Prefs.repeat(this).let { if (it == Player.REPEAT_MODE_ONE) Player.REPEAT_MODE_ALL else it }
         player.addListener(object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) = saveState()
 

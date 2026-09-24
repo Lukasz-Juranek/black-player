@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
@@ -53,6 +54,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -94,6 +96,7 @@ fun PlayerScreen(controller: Player?) {
     var shuffle by remember { mutableStateOf(false) }
     var repeat by remember { mutableIntStateOf(Player.REPEAT_MODE_OFF) }
     var meta by remember { mutableStateOf(MediaMetadata.EMPTY) }
+    var error by remember { mutableStateOf<String?>(null) }
     var duration by remember { mutableLongStateOf(0L) }
     var position by remember { mutableLongStateOf(0L) }
     var folderName by remember { mutableStateOf(Prefs.source(ctx)?.let(Library::label)) }
@@ -111,6 +114,7 @@ fun PlayerScreen(controller: Player?) {
             shuffle = c.shuffleModeEnabled
             repeat = c.repeatMode
             meta = c.mediaMetadata
+            error = c.playerError?.let { "${it.errorCodeName}: ${it.cause?.message ?: it.message}" }
             duration = c.duration.coerceAtLeast(0)
             position = c.currentPosition
         }
@@ -267,6 +271,9 @@ fun PlayerScreen(controller: Player?) {
                 text = listOfNotNull(meta.artist, meta.albumTitle).joinToString("  ·  "),
                 color = Dim, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
             )
+            error?.let {
+                Text(it, color = Color(0xFFCC5555), fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
 
             SeekBar(position, duration) { controller?.seekTo(it); position = it }
 
@@ -308,11 +315,29 @@ fun PlayerScreen(controller: Player?) {
                         else -> Player.REPEAT_MODE_OFF
                     }
                 }) {
-                    Icon(
-                        painterResource(if (repeat == Player.REPEAT_MODE_ONE) R.drawable.ic_repeat_one else R.drawable.ic_repeat),
-                        "Repeat",
-                        tint = if (repeat == Player.REPEAT_MODE_OFF) Faint else Color.White
-                    )
+                    Box {
+                        Icon(
+                            painterResource(R.drawable.ic_repeat),
+                            when (repeat) {
+                                Player.REPEAT_MODE_ONE -> "Repeat one"
+                                Player.REPEAT_MODE_ALL -> "Repeat all"
+                                else -> "Repeat off"
+                            },
+                            tint = if (repeat == Player.REPEAT_MODE_OFF) Faint else Color.White
+                        )
+                        // The glyph's own "1" is too small to notice; badge it instead.
+                        if (repeat == Player.REPEAT_MODE_ONE) Text(
+                            "1",
+                            color = Color.Black, fontSize = 9.sp, fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .offset(x = 6.dp, y = (-6).dp)
+                                .size(14.dp)
+                                .clip(CircleShape)
+                                .background(Color.White)
+                        )
+                    }
                 }
             }
         }
@@ -371,12 +396,48 @@ private fun SeekBar(position: Long, duration: Long, onSeek: (Long) -> Unit) {
             ),
             modifier = Modifier.height(32.dp)
         )
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Text(formatTime((shown * duration).toLong()), color = Dim, fontSize = 12.sp)
+            if (duration > 0) {
+                val step = jumpStep(duration)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    JumpButton("−${formatStep(step)}") { onSeek((position - step).coerceAtLeast(0)) }
+                    JumpButton("+${formatStep(step)}") { onSeek((position + step).coerceAtMost(duration)) }
+                }
+            }
             Text(formatTime(duration), color = Dim, fontSize = 12.sp)
         }
     }
 }
+
+@Composable
+private fun JumpButton(label: String, onClick: () -> Unit) {
+    Text(
+        label, color = Color.White, fontSize = 13.sp,
+        modifier = Modifier
+            .clip(CircleShape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 8.dp)
+    )
+}
+
+/** Skip distance grows with the track: 10s for short clips, 30s for songs, minutes for mixes and audiobooks. */
+private fun jumpStep(durationMs: Long): Long {
+    val min = 60_000L
+    return when {
+        durationMs < 2 * min -> 10_000L
+        durationMs < 15 * min -> 30_000L
+        durationMs < 45 * min -> 60_000L
+        durationMs < 120 * min -> 5 * min
+        else -> 10 * min
+    }
+}
+
+private fun formatStep(ms: Long): String = if (ms < 60_000) "${ms / 1000}s" else "${ms / 60_000}m"
 
 private fun togglePlay(p: Player) {
     if (p.playWhenReady && p.playbackState != Player.STATE_ENDED) {
