@@ -7,6 +7,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.provider.OpenableColumns
 import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.provider.DocumentsContract.Document
@@ -46,6 +47,16 @@ object Library {
             }
         }
         return out.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.path })
+    }
+
+    /** A single file opened from another app, named by its display name when the provider has one. */
+    fun opened(context: Context, uri: Uri): Track {
+        val name = runCatching {
+            context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+                if (c.moveToFirst()) c.getString(0) else null
+            }
+        }.getOrNull() ?: uri.lastPathSegment?.substringAfterLast('/') ?: "Audio"
+        return Track(uri, name.substringBeforeLast('.'), name)
     }
 
     fun label(source: String): String =

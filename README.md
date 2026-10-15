@@ -4,6 +4,7 @@ A minimal black Android music player. You pick a folder and it plays everything 
 
 - Play/pause, previous/next, seek, shuffle, repeat (off / all / one)
 - **Search** (🔍 in the header) filters the track list by title as you type. Tap a result to play it
+- Shows up under **Open with** for audio files in file managers (e.g. Black Files) and plays that one file
 - Background playback with notification, lock-screen and headset/Bluetooth controls
 - Pauses when headphones are unplugged or a call comes in
 - Remembers the folder, track, position, shuffle and repeat

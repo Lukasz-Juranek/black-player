@@ -91,8 +91,9 @@ fun PlayerTheme(content: @Composable () -> Unit) {
     )
 }
 
+/** [opened] is a file handed over through "Open with"; [onOpened] is called once it's playing. */
 @Composable
-fun PlayerScreen(controller: Player?) {
+fun PlayerScreen(controller: Player?, opened: Uri?, onOpened: () -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val currentController by rememberUpdatedState(controller)
@@ -152,15 +153,27 @@ fun PlayerScreen(controller: Player?) {
     // After a restart the service is empty: reload the saved folder and resume where we left off.
     LaunchedEffect(controller) {
         val c = controller ?: return@LaunchedEffect
-        if (c.mediaItemCount > 0 || scanning) return@LaunchedEffect
+        if (c.mediaItemCount > 0 || scanning || opened != null) return@LaunchedEffect
         val source = Prefs.source(ctx) ?: return@LaunchedEffect
         scanning = true
         val tracks = withContext(Dispatchers.IO) {
             runCatching { Library.scan(ctx, source) }.getOrDefault(emptyList())
         }
         scanning = false
+        // A file opened from another app may have started playing while we scanned.
+        if (c.mediaItemCount > 0) return@LaunchedEffect
         val start = tracks.indexOfFirst { it.uri.toString() == Prefs.lastTrack(ctx) }
         load(c, tracks, start.coerceAtLeast(0), if (start >= 0) Prefs.lastPosition(ctx) else 0, play = false)
+    }
+
+    // "Open with" from a file manager: play just that file.
+    LaunchedEffect(controller, opened) {
+        val c = controller ?: return@LaunchedEffect
+        val uri = opened ?: return@LaunchedEffect
+        val track = withContext(Dispatchers.IO) { Library.opened(ctx, uri) }
+        folderName = "Opened file"
+        load(c, listOf(track), 0, 0, play = true)
+        onOpened()
     }
 
     fun useSource(source: String) {

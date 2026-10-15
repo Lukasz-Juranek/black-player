@@ -1,7 +1,9 @@
 package com.lj.blackplayer
 
 import android.content.ComponentName
+import android.content.Intent
 import android.graphics.Color
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -16,6 +18,8 @@ import com.google.common.util.concurrent.ListenableFuture
 class MainActivity : ComponentActivity() {
     private var controllerFuture: ListenableFuture<MediaController>? = null
     private val controller = mutableStateOf<MediaController?>(null)
+    /** An audio file handed over by another app ("Open with"), waiting to be played. */
+    private val opened = mutableStateOf<Uri?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -23,10 +27,20 @@ class MainActivity : ComponentActivity() {
             SystemBarStyle.dark(Color.TRANSPARENT),
             SystemBarStyle.dark(Color.TRANSPARENT)
         )
+        // Not after a rotation, or the file would start over.
+        if (savedInstanceState == null) opened.value = audioFrom(intent)
         setContent {
-            PlayerTheme { PlayerScreen(controller.value) }
+            PlayerTheme { PlayerScreen(controller.value, opened.value) { opened.value = null } }
         }
     }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        audioFrom(intent)?.let { opened.value = it }
+    }
+
+    private fun audioFrom(intent: Intent?): Uri? = intent?.takeIf { it.action == Intent.ACTION_VIEW }?.data
 
     override fun onStart() {
         super.onStart()
