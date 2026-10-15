@@ -4,6 +4,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -19,9 +20,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -37,6 +40,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -49,10 +53,15 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -101,6 +110,10 @@ fun PlayerScreen(controller: Player?) {
     var folderName by remember { mutableStateOf(Prefs.source(ctx)?.let(Library::label)) }
     var scanning by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
+    // null = search bar closed; otherwise the track list is filtered by title.
+    var query by remember { mutableStateOf<String?>(null) }
+
+    BackHandler(enabled = query != null) { query = null }
 
     // Mirror player state into Compose state.
     DisposableEffect(controller) {
@@ -197,8 +210,20 @@ fun PlayerScreen(controller: Player?) {
             .background(Color.Black)
             .systemBarsPadding()
     ) {
-        // Header: folder name + change folder
-        Row(
+        // Header: folder name + search + change folder, or the search field
+        if (query != null) Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(start = 8.dp, end = 8.dp, top = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(painterResource(R.drawable.ic_search), null, Modifier.padding(12.dp), tint = Dim)
+            SearchField(query.orEmpty(), { query = it }, "Search ${folderName ?: "tracks"}", Modifier.weight(1f))
+            // First tap clears the text, second closes the search.
+            IconButton(onClick = { query = if (query.isNullOrEmpty()) null else "" }) {
+                Icon(painterResource(R.drawable.ic_close), "Close search", tint = Dim)
+            }
+        } else Row(
             Modifier
                 .fillMaxWidth()
                 .padding(start = 20.dp, end = 8.dp, top = 8.dp),
@@ -210,6 +235,11 @@ fun PlayerScreen(controller: Player?) {
                 maxLines = 1, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
             )
+            if (items.isNotEmpty()) {
+                IconButton(onClick = { query = "" }) {
+                    Icon(painterResource(R.drawable.ic_search), "Search", tint = Dim)
+                }
+            }
             Box {
                 IconButton(onClick = { menuOpen = true }) {
                     Icon(painterResource(R.drawable.ic_folder), "Music source", tint = Dim)
@@ -247,11 +277,21 @@ fun PlayerScreen(controller: Player?) {
                         Text("Play from Downloads", color = Color.White)
                     }
                 }
-                else -> TrackList(items, index) { i ->
-                    controller?.run {
-                        seekTo(i, 0)
-                        prepare()
-                        play()
+                else -> {
+                    val q = query?.trim().orEmpty()
+                    val rows = items.indices.filter { i ->
+                        q.isEmpty() || title(items[i]).contains(q, ignoreCase = true)
+                    }
+                    if (rows.isEmpty()) Text("Nothing matches \"$q\"", color = Dim)
+                    // Fresh list state when search opens or closes, so each starts at the right place.
+                    else key(query != null) {
+                        TrackList(items, rows, index) { i ->
+                            controller?.run {
+                                seekTo(i, 0)
+                                prepare()
+                                play()
+                            }
+                        }
                     }
                 }
             }
@@ -329,20 +369,25 @@ fun PlayerScreen(controller: Player?) {
     }
 }
 
+private fun title(item: MediaItem): String = item.mediaMetadata.displayTitle?.toString() ?: item.mediaId
+
+/** Shows the tracks at [rows] (indices into [tracks]); [onClick] gets the index into [tracks]. */
 @Composable
-private fun TrackList(items: List<MediaItem>, current: Int, onClick: (Int) -> Unit) {
+private fun TrackList(tracks: List<MediaItem>, rows: List<Int>, current: Int, onClick: (Int) -> Unit) {
     val listState = rememberLazyListState()
     // Keep the playing track in view when it changes.
     LaunchedEffect(current) {
-        if (current < 0) return@LaunchedEffect
+        val row = rows.indexOf(current)
+        if (row < 0) return@LaunchedEffect
         val visible = listState.layoutInfo.visibleItemsInfo
-        if (visible.none { it.index == current }) listState.animateScrollToItem(current)
+        if (visible.none { it.index == row }) listState.animateScrollToItem(row)
     }
     LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
-        itemsIndexed(items, key = { i, item -> "$i:${item.mediaId}" }) { i, item ->
+        items(rows, key = { i -> "$i:${tracks[i].mediaId}" }) { i ->
+            val item = tracks[i]
             val active = i == current
             Text(
-                text = item.mediaMetadata.displayTitle?.toString() ?: item.mediaId,
+                text = title(item),
                 color = if (active) Color.White else Dim,
                 fontWeight = if (active) FontWeight.Medium else FontWeight.Normal,
                 fontSize = 15.sp,
@@ -354,6 +399,26 @@ private fun TrackList(items: List<MediaItem>, current: Int, onClick: (Int) -> Un
             )
         }
     }
+}
+
+@Composable
+private fun SearchField(value: String, onChange: (String) -> Unit, hint: String, modifier: Modifier = Modifier) {
+    val focus = remember { FocusRequester() }
+    BasicTextField(
+        value, onChange,
+        modifier.focusRequester(focus).padding(vertical = 12.dp),
+        singleLine = true,
+        textStyle = TextStyle(color = Color.White, fontSize = 16.sp),
+        cursorBrush = SolidColor(Color.White),
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+        decorationBox = { field ->
+            Box {
+                if (value.isEmpty()) Text(hint, color = Dim, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                field()
+            }
+        }
+    )
+    LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
 }
 
 @Composable
