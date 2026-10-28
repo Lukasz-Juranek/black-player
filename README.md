@@ -6,6 +6,9 @@ A minimal black Android music player. You pick a folder and it plays everything 
 - **Search** (🔍 in the header) filters the track list by title as you type. Tap a result to play it
 - Shows up under **Open with** for audio files in file managers (e.g. Black Files) and plays that one file
 - Background playback with notification, lock-screen and headset/Bluetooth controls
+- Works in **Android Auto**: browse the tracks of the chosen folder, pick one to play the list from there, or press
+  play to resume. Android Auto hides apps not installed from the Play Store, so first enable its developer settings
+  (tap *Version* 10 times in Android Auto's settings), then turn on **Unknown sources** in the ⋮ menu → *Developer settings*
 - Pauses when headphones are unplugged or a call comes in
 - Remembers the folder, track, position, shuffle and repeat
 - Skips files that can't be played
